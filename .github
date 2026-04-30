@@ -1,0 +1,140 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  security-scan:
+    name: Run Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Run security scan
+        id: scan
+        run: |
+          # Run scan and capture output
+          SCAN_RESULT=$(python -c "
+import sys
+sys.path.insert(0, '${{ github.workspace }}')
+import asyncio
+from src.models.vulnerability_detector import VulnerabilityDetector
+
+async def scan():
+    detector = VulnerabilityDetector()
+    await detector.load()
+    
+    # Scan all Python files in the repo
+    import os
+    findings = []
+    for root, dirs, files in os.walk('.'):
+        # Skip certain directories
+        dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'venv']]
+        for file in files:
+            if file.endswith('.py'):
+                filepath = os.path.join(root, file)
+                try:
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                        code = f.read()
+                    if code.strip():
+                        results = await detector.detect(code, 'python', filepath)
+                        findings.extend(results)
+                except:
+                    pass
+    return findings
+
+results = asyncio.run(scan())
+
+# Format results
+import json
+output = {
+    'total_findings': len(results),
+    'by_severity': {
+        'critical': len([f for f in results if f.severity.value == 'critical']),
+        'high': len([f for f in results if f.severity.value == 'high']),
+        'medium': len([f for f in results if f.severity.value == 'medium']),
+        'low': len([f for f in results if f.severity.value == 'low'])
+    },
+    'findings': [
+        {
+            'file': f.file_path or 'unknown',
+            'line': f.line_number,
+            'severity': f.severity.value,
+            'title': f.title,
+            'cwe': f.cwe_id
+        }
+        for f in results[:20]  # Limit to top 20
+    ]
+}
+print(json.dumps(output))
+" 2>&1)
+          
+          echo "scan_result=$SCAN_RESULT" >> $GITHUB_OUTPUT
+          echo "$SCAN_RESULT"
+      
+      - name: Parse scan results
+        id: parse
+        run: |
+          RESULT='${{ steps.scan.outputs.scan_result }}'
+          echo "results_json=$RESULT" >> $GITHUB_OUTPUT
+      
+      - name: Create PR comment
+        if: github.event_name == 'pull_request'
+        run: |
+          RESULT='${{ steps.scan.outputs.scan_result }}'
+          
+          # Extract counts
+          TOTAL=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['total_findings'])")
+          CRITICAL=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['by_severity']['critical'])")
+          HIGH=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['by_severity']['high'])")
+          MEDIUM=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['by_severity']['medium'])")
+          LOW=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['by_severity']['low'])")
+          
+          # Format comment
+          COMMENT="## ðŸ”’ Security Scan Results
+          
+| Severity | Count |
+|----------|-------|
+| ðŸ”´ Critical | $CRITICAL |
+| ðŸŸ  High | $HIGH |
+| ðŸŸ¡ Medium | $MEDIUM |
+| ðŸŸ¢ Low | $LOW |
+| **Total** | **$TOTAL** |
+"
+          
+          # Post comment
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d "{\"body\": \"$COMMENT\"}"
+      
+      - name: Check for critical issues
+        if: always()
+        run: |
+          RESULT='${{ steps.scan.outputs.scan_result }}'
+          CRITICAL=$(echo "$RESULT" | python -c "import sys,json; print(json.load(sys.stdin)['by_severity']['critical'])")
+          
+          if [ "$CRITICAL" -gt "0" ]; then
+            echo "âŒ Found $CRITICAL critical security issues!"
+            exit 1
+          fi
+          echo "âœ… No critical security issues found"
