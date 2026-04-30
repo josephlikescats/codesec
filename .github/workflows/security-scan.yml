@@ -1,0 +1,199 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  security-scan:
+    name: Run Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run security scan
+        run: |
+          python <<'PY'
+          import asyncio
+          import json
+          import os
+          from pathlib import Path
+
+          from src.models.vulnerability_detector import VulnerabilityDetector
+
+          SKIP_DIRS = {
+              ".git",
+              ".pytest_cache",
+              ".venv",
+              "__pycache__",
+              "dist",
+              "node_modules",
+              "venv",
+          }
+
+          SEVERITIES = ("critical", "high", "medium", "low", "info")
+          EXTENSIONS = {
+              ".py": "python",
+              ".js": "javascript",
+              ".jsx": "javascript",
+              ".ts": "typescript",
+              ".tsx": "typescript",
+          }
+
+          async def main():
+              detector = VulnerabilityDetector()
+              detector._is_loaded = True
+
+              findings = []
+              for root, dirs, files in os.walk("."):
+                  dirs[:] = [directory for directory in dirs if directory not in SKIP_DIRS]
+                  for filename in files:
+                      path = Path(root, filename)
+                      language = EXTENSIONS.get(path.suffix)
+                      if not language:
+                          continue
+
+                      try:
+                          code = path.read_text(encoding="utf-8", errors="ignore")
+                      except OSError:
+                          continue
+
+                      if not code.strip():
+                          continue
+
+                      for finding in await detector.detect(code, language, str(path)):
+                          findings.append(
+                              {
+                                  "file": str(path).replace("\\", "/").removeprefix("./"),
+                                  "line": finding.line_number,
+                                  "severity": finding.severity.value,
+                                  "title": finding.title,
+                                  "cwe": finding.cwe_id,
+                                  "confidence": finding.confidence,
+                              }
+                          )
+
+              by_severity = {
+                  severity: sum(1 for finding in findings if finding["severity"] == severity)
+                  for severity in SEVERITIES
+              }
+              results = {
+                  "total_findings": len(findings),
+                  "by_severity": by_severity,
+                  "findings": findings[:50],
+              }
+
+              Path("security-scan-results.json").write_text(
+                  json.dumps(results, indent=2),
+                  encoding="utf-8",
+              )
+
+              lines = [
+                  "## Security Scan Results",
+                  "",
+                  "| Severity | Count |",
+                  "| --- | ---: |",
+                  f"| Critical | {by_severity['critical']} |",
+                  f"| High | {by_severity['high']} |",
+                  f"| Medium | {by_severity['medium']} |",
+                  f"| Low | {by_severity['low']} |",
+                  f"| Info | {by_severity['info']} |",
+                  f"| **Total** | **{len(findings)}** |",
+                  "",
+              ]
+
+              if findings:
+                  lines.extend(
+                      [
+                          "### Top Findings",
+                          "",
+                          "| Severity | File | Line | Finding | CWE |",
+                          "| --- | --- | ---: | --- | --- |",
+                      ]
+                  )
+                  for finding in findings[:20]:
+                      title = finding["title"].replace("|", "\\|")
+                      lines.append(
+                          "| {severity} | `{file}` | {line} | {title} | {cwe} |".format(
+                              severity=finding["severity"],
+                              file=finding["file"],
+                              line=finding["line"],
+                              title=title,
+                              cwe=finding["cwe"] or "",
+                          )
+                      )
+              else:
+                  lines.append("No findings detected.")
+
+              Path("security-scan-summary.md").write_text(
+                  "\n".join(lines) + "\n",
+                  encoding="utf-8",
+              )
+
+          asyncio.run(main())
+          PY
+
+      - name: Add scan summary
+        if: always()
+        run: cat security-scan-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results
+          path: |
+            security-scan-results.json
+            security-scan-summary.md
+          retention-days: 30
+
+      - name: Comment on pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('security-scan-summary.md', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail on critical findings
+        run: |
+          python <<'PY'
+          import json
+          import sys
+
+          with open("security-scan-results.json", encoding="utf-8") as file:
+              results = json.load(file)
+
+          critical = results["by_severity"].get("critical", 0)
+          if critical:
+              print(f"Found {critical} critical security finding(s).")
+              sys.exit(1)
+
+          print("No critical security findings detected.")
+          PY
