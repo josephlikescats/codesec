@@ -139,3 +139,4 @@ black src/
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+Demo scan trigger
