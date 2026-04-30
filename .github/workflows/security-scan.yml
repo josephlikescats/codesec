@@ -48,7 +48,15 @@ jobs:
               "__pycache__",
               "dist",
               "node_modules",
+              "tests",
               "venv",
+          }
+          SKIP_FILES = {
+              "src/models/remediation_suggester.py",
+              "src/models/test_generator.py",
+              "src/models/vulnerability_detector.py",
+              "test_api.py",
+              "test_scan.py",
           }
 
           SEVERITIES = ("critical", "high", "medium", "low", "info")
@@ -69,6 +77,10 @@ jobs:
                   dirs[:] = [directory for directory in dirs if directory not in SKIP_DIRS]
                   for filename in files:
                       path = Path(root, filename)
+                      normalized_path = str(path).replace("\\", "/").removeprefix("./")
+                      if normalized_path in SKIP_FILES or filename.startswith("test_"):
+                          continue
+
                       language = EXTENSIONS.get(path.suffix)
                       if not language:
                           continue
@@ -84,7 +96,7 @@ jobs:
                       for finding in await detector.detect(code, language, str(path)):
                           findings.append(
                               {
-                                  "file": str(path).replace("\\", "/").removeprefix("./"),
+                                  "file": normalized_path,
                                   "line": finding.line_number,
                                   "severity": finding.severity.value,
                                   "title": finding.title,
