@@ -448,17 +448,126 @@ async def scan_file(
                     "category": f.category.value,
                     "severity": f.severity.value,
                     "title": f.title,
+                    "description": f.description,
+                    "code_snippet": f.code_snippet,
                     "line_number": f.line_number,
-                    "cwe_id": f.cwe_id
+                    "cwe_id": f.cwe_id,
+                    "confidence": f.confidence
                 }
                 for f in findings
             ],
-            "has_issues": len(findings) > 0
+            "has_issues": len(findings) > 0,
+            "scan_time_ms": 0,
+            "lines_scanned": len(code.splitlines())
         }
         
     except Exception as e:
         logger.error(f"File scan failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/scan/project", tags=["Scanner"])
+async def scan_project(
+    files: list[UploadFile] = File(...),
+    language: str = "python"
+):
+    """Scan an entire project for vulnerabilities.
+    
+    This endpoint accepts multiple file uploads for comprehensive project scanning.
+    """
+    import time
+    start_time = time.time()
+    
+    results = []
+    total_findings = 0
+    total_lines = 0
+    
+    for file in files:
+        try:
+            # Skip non-code files
+            if file.filename.endswith(('.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.gitignore')):
+                continue
+                
+            # Read file content
+            content = await file.read()
+            code = content.decode("utf-8", errors="ignore")
+            
+            # Detect language from extension
+            file_lang = language
+            if file.filename.endswith('.py'):
+                file_lang = 'python'
+            elif file.filename.endswith(('.js', '.jsx')):
+                file_lang = 'javascript'
+            elif file.filename.endswith(('.ts', '.tsx')):
+                file_lang = 'typescript'
+            elif file.filename.endswith('.java'):
+                file_lang = 'java'
+            elif file.filename.endswith('.go'):
+                file_lang = 'go'
+            elif file.filename.endswith('.rs'):
+                file_lang = 'rust'
+            
+            # Scan the code
+            findings = await detector.detect(
+                code=code,
+                language=file_lang,
+                file_path=file.filename
+            )
+            
+            findings_dict = [
+                {
+                    "id": f.id,
+                    "category": f.category.value,
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "code_snippet": f.code_snippet,
+                    "line_number": f.line_number,
+                    "cwe_id": f.cwe_id,
+                    "confidence": f.confidence
+                }
+                for f in findings
+            ]
+            
+            results.append({
+                "file_name": file.filename,
+                "language": file_lang,
+                "findings": findings_dict,
+                "has_issues": len(findings) > 0,
+                "lines_scanned": len(code.splitlines())
+            })
+            
+            total_findings += len(findings)
+            total_lines += len(code.splitlines())
+            
+        except Exception as e:
+            logger.error(f"Failed to scan file {file.filename}: {e}")
+            results.append({
+                "file_name": file.filename,
+                "error": str(e)
+            })
+    
+    scan_time_ms = (time.time() - start_time) * 1000
+    
+    # Aggregate findings by severity
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for r in results:
+        for f in r.get("findings", []):
+            sev = f.get("severity", "low")
+            if sev in severity_counts:
+                severity_counts[sev] += 1
+    
+    return {
+        "scan_id": str(uuid.uuid4()),
+        "project_name": "uploaded_project",
+        "total_files": len(results),
+        "files_with_issues": sum(1 for r in results if r.get("has_issues", False)),
+        "total_findings": total_findings,
+        "total_lines_scanned": total_lines,
+        "scan_time_ms": scan_time_ms,
+        "by_severity": severity_counts,
+        "results": results
+    }
 
 
 # ================== Statistics Endpoints ==================
