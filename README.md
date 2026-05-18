@@ -1,144 +1,77 @@
-# SecureCode AI - AI-Driven DevSecOps Platform
+# CodeSec - AI-Powered DevSecOps Security Scanner
 
-An AI-powered platform that automatically generates security tests, detects vulnerabilities, and suggests code fixes using ML models trained on CVE data and GitHub vulnerability reports.
+CodeSec is an AI-first DevSecOps platform for scanning source code, GitHub repositories, and CI/CD pipelines for security issues. It combines pattern-based checks, secret detection, dependency analysis, and optional ML-powered vulnerability classification into a single developer workflow.
 
-## Features
+## Key capabilities
 
-- **Vulnerability Detection**: ML-powered scanning for security issues in code
-- **Automated Test Generation**: AI-generated unit tests targeting detected vulnerabilities
-- **Remediation Suggestions**: Context-aware code fixes for security issues
-- **CI/CD Integration**: Seamless integration with GitHub Actions, Jenkins, and GitLab CI
-- **Explainable AI**: XAI-powered explanations for vulnerability findings
-- **Continuous Learning**: Feedback loop from production to improve detection
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     SecureCode AI Platform                      │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
-│  │   Code In    │  │  Vulnerability│  │   Test Generation    │ │
-│  │   Scanner    │──│   Detector    │──│      Engine          │ │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘ │
-│         │                  │                    │              │
-│         ▼                  ▼                    ▼              │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │              ML Model Layer (CodeBERT/GPT)               │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│         │                  │                    │              │
-│         ▼                  ▼                    ▼              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
-│  │   CVE Data    │  │  GitHub       │  │   OWASP              │ │
-│  │   Pipeline    │  │  Issues       │  │   Knowledge Base     │ │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **Code vulnerability scanning** using pattern matching and heuristic rules
+- **GitHub repository scanning** for repository files, sensitive file detection, and metadata collection
+- **Secret scanning** to identify hardcoded credentials and tokens
+- **Dependency analysis** for insecure or suspicious manifest entries
+- **CI/CD integration helpers** for Jenkins and GitLab pipelines
+- **React-based dashboard** for paste, upload, and repo scan workflows
 
 ## Quick Start
 
-### Installation
+### Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/securecode-ai/securecode-ai.git
-cd securecode-ai
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Set up environment variables
-cp .env.example .env
+git clone https://github.com/josephlikescats/codesec.git
+cd codesec
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
 ```
 
-### Running the API Server
+### Run the backend
 
 ```bash
-# Start the API server
-uvicorn src.api.main:app --reload
-
-# The API will be available at http://localhost:8000
-# API documentation at http://localhost:8000/docs
+uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Using the Scanner
+Open the API docs at `http://127.0.0.1:8000/docs`.
+
+### Run the frontend
 
 ```bash
-# Scan a file for vulnerabilities
-curl -X POST http://localhost:8000/api/v1/scan \
+cd src/web
+npm install
+npm run build
+cd ../../
+python -m http.server 5173 --bind 127.0.0.1 --directory src/web/dist
+```
+
+Open `http://127.0.0.1:5173` in your browser.
+
+### Example scan request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scan \
   -H "Content-Type: application/json" \
-  -d '{"code": "def vulnerable_function(pwd): os.system(pwd)", "language": "python"}'
+  -d '{"code":"def vulnerable(): os.system(\"id\")", "language":"python"}'
 ```
 
-## Project Structure
+## Project layout
 
 ```
-securecode-ai/
+codesec/
 ├── src/
-│   ├── api/              # FastAPI server and endpoints
-│   ├── data_pipeline/   # CVE fetcher, GitHub scraper
-│   ├── models/          # ML models for vulnerability detection
-│   ├── integrations/    # CI/CD integration modules
-│   └── web/             # React dashboard
+│   ├── api/              # FastAPI endpoints and server
+│   ├── models/           # Detection, remediation, and ML logic
+│   ├── integrations/     # CI/CD and repo scan helpers
+│   ├── web/              # React dashboard UI
+│   └── data_pipeline/    # CVE ingestion and repo scraping
 ├── tests/                # Test suite
-├── config/               # Configuration files
-└── pyproject.toml        # Project configuration
+├── pyproject.toml        # Packaging and dependencies
+└── README.md             # Project overview
 ```
 
-## API Endpoints
+## Notes
 
-### Scanner API
-- `POST /api/v1/scan` - Scan code for vulnerabilities
-- `GET /api/v1/scan/{id}` - Get scan results
-
-### Test Generation API
-- `POST /api/v1/tests/generate` - Generate security tests
-- `GET /api/v1/tests/{id}` - Get generated tests
-
-### Remediation API
-- `POST /api/v1/fix/suggest` - Get fix suggestions
-- `POST /api/v1/fix/apply` - Apply suggested fix
-
-## Configuration
-
-Environment variables can be configured in `.env`:
-
-```env
-# Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/securecode
-REDIS_URL=redis://localhost:6379/0
-
-# ML Model
-MODEL_PATH=models/securecode-v1
-MODEL_DEVICE=cpu
-
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
-
-# GitHub Integration
-GITHUB_TOKEN=your_github_token
-```
-
-## Development
-
-```bash
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=src
-
-# Lint code
-ruff check src/
-
-# Format code
-black src/
-```
+- The backend is designed to continue working even when optional ML dependencies are not installed.
+- Install `httpx` and configure `GITHUB_TOKEN` to enable GitHub repository scanning.
+- Use `pytest` to run tests and validate functionality.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-Demo scan trigger
-
-Demo scan trigger 2026-04-30T10:10:30.2614186+05:30
+MIT License

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useRef } from 'react'
 import {
   Box,
   Card,
@@ -23,7 +23,8 @@ import {
   Code as CodeIcon,
   CloudUpload as UploadIcon,
   Download as DownloadIcon,
-  Security as SecurityIcon
+  Security as SecurityIcon,
+  GitHub as GitHubIcon
 } from '@mui/icons-material'
 import axios from 'axios'
 import FileUpload from '../components/FileUpload'
@@ -37,6 +38,57 @@ interface Finding {
   code_snippet?: string
   line_number: number
   cwe_id: string
+  confidence?: number
+  remediation?: string
+  references?: string[]
+  source?: string
+}
+
+interface RemediationSuggestion {
+  id: string
+  vulnerability_id: string
+  title: string
+  description: string
+  fixed_code: string
+  explanation: string
+  confidence: number
+}
+
+interface GeneratedTest {
+  id: string
+  vulnerability_id: string
+  name: string
+  description: string
+  test_code: string
+}
+
+interface GitHubScanResult {
+  owner: string
+  repo: string
+  url: string
+  language: string
+  files_count: number
+  total_lines: number
+  files_scanned: number
+  total_findings: number
+  scan_time_ms: number
+  languages: Record<string, number>
+  sensitive_files: string[]
+  findings_by_severity: Record<string, number>
+  findings_by_file: Array<{
+    path: string
+    language: string
+    findings_count: number
+    findings: Array<{
+      id: string
+      category: string
+      severity: string
+      title: string
+      line_number?: number
+      source?: string
+      description?: string
+    }>
+  }>
 }
 
 interface TabPanelProps {
@@ -61,10 +113,16 @@ export default function ScanPage() {
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [results, setResults] = useState<Finding[]>([])
+  const [suggestions, setSuggestions] = useState<RemediationSuggestion[]>([])
+  const [generatedTests, setGeneratedTests] = useState<GeneratedTest[]>([])
   const [error, setError] = useState('')
   const [scanTime, setScanTime] = useState(0)
   const [linesScanned, setLinesScanned] = useState(0)
-  const progressRef = useRef<NodeJS.Timeout | null>(null)
+  const [repoUrl, setRepoUrl] = useState('')
+  const [repoScanLoading, setRepoScanLoading] = useState(false)
+  const [repoScanError, setRepoScanError] = useState('')
+  const [repoScanResult, setRepoScanResult] = useState<GitHubScanResult | null>(null)
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const startProgress = () => {
     setProgress(0)
@@ -91,6 +149,8 @@ export default function ScanPage() {
     setLoading(true)
     setError('')
     setResults([])
+    setSuggestions([])
+    setGeneratedTests([])
     startProgress()
 
     try {
@@ -99,9 +159,20 @@ export default function ScanPage() {
         language
       })
 
-      setResults(response.data.findings)
+      const findings = response.data.findings || []
+      setResults(findings)
       setScanTime(response.data.scan_time_ms)
       setLinesScanned(response.data.lines_scanned)
+
+      if (findings.length > 0) {
+        const [fixResponse, testResponse] = await Promise.all([
+          axios.post('/api/v1/fix/suggest', { findings }),
+          axios.post('/api/v1/tests/generate', { findings, language })
+        ])
+
+        setSuggestions(fixResponse.data.suggestions || [])
+        setGeneratedTests(testResponse.data.tests || [])
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Scan failed. Please try again.')
     } finally {
@@ -122,6 +193,59 @@ export default function ScanPage() {
 
   const getSeverityCount = (severity: string) => {
     return results.filter(f => f.severity === severity).length
+  }
+
+  const getSuggestion = (findingId: string) => {
+    return suggestions.find(suggestion => suggestion.vulnerability_id === findingId)
+  }
+
+  const getGeneratedTest = (findingId: string) => {
+    return generatedTests.find(test => test.vulnerability_id === findingId)
+  }
+
+  const parseRepoUrl = (url: string): { owner: string; repo: string } | null => {
+    const normalized = url.trim().replace(/\/$/, '')
+
+    if (!normalized) {
+      return null
+    }
+
+    const githubUrlMatch = normalized.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i)
+    if (githubUrlMatch) {
+      return { owner: githubUrlMatch[1], repo: githubUrlMatch[2] }
+    }
+
+    const ownerRepoMatch = normalized.match(/^([\w-]+)\/([\w.-]+)$/)
+    if (ownerRepoMatch) {
+      return { owner: ownerRepoMatch[1], repo: ownerRepoMatch[2] }
+    }
+
+    return null
+  }
+
+  const handleRepoScan = async () => {
+    const parsed = parseRepoUrl(repoUrl)
+    if (!parsed) {
+      setRepoScanError('Enter a valid GitHub repository URL or owner/repo format.')
+      return
+    }
+
+    setRepoScanLoading(true)
+    setRepoScanError('')
+    setRepoScanResult(null)
+
+    try {
+      const response = await axios.post('/api/v1/scan/github', {
+        owner: parsed.owner,
+        repo: parsed.repo
+      })
+
+      setRepoScanResult(response.data)
+    } catch (err: any) {
+      setRepoScanError(err.response?.data?.detail || 'Repository scan failed. Please try again.')
+    } finally {
+      setRepoScanLoading(false)
+    }
   }
 
   const exportResults = () => {
@@ -166,6 +290,7 @@ export default function ScanPage() {
         >
           <Tab icon={<CodeIcon />} label="Paste Code" iconPosition="start" />
           <Tab icon={<UploadIcon />} label="Upload Files" iconPosition="start" />
+          <Tab icon={<GitHubIcon />} label="GitHub Repo" iconPosition="start" />
         </Tabs>
       </Paper>
 
@@ -229,6 +354,134 @@ export default function ScanPage() {
       {/* File Upload Tab */}
       <TabPanel value={tab} index={1}>
         <FileUpload />
+      </TabPanel>
+
+      {/* GitHub Repo Scan Tab */}
+      <TabPanel value={tab} index={2}>
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2 }}>GitHub Repository Scan</Typography>
+
+            <TextField
+              fullWidth
+              label="GitHub repository URL or owner/repo"
+              placeholder="https://github.com/owner/repo or owner/repo"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              sx={{ mb: 2 }}
+            />
+
+            <Box display="flex" gap={2} flexWrap="wrap">
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={repoScanLoading ? <CircularProgress size={20} color="inherit" /> : <GitHubIcon />}
+                onClick={handleRepoScan}
+                disabled={repoScanLoading || !repoUrl.trim()}
+                sx={{
+                  background: 'linear-gradient(90deg, #0f172a 0%, #1d4ed8 100%)',
+                  px: 4
+                }}
+              >
+                {repoScanLoading ? 'Scanning repository...' : 'Scan GitHub Repo'}
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+
+        {repoScanError && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {repoScanError}
+          </Alert>
+        )}
+
+        {repoScanResult && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                Repository Scan Result
+              </Typography>
+
+              <Box display="grid" gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))" gap={2} sx={{ mb: 3 }}>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2">Repository</Typography>
+                  <Typography>{repoScanResult.owner}/{repoScanResult.repo}</Typography>
+                  <Typography variant="caption" component="a" href={repoScanResult.url} target="_blank" rel="noopener noreferrer" sx={{ display: 'block', mt: 1 }}>
+                    View on GitHub
+                  </Typography>
+                </Paper>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2">Primary Language</Typography>
+                  <Typography>{repoScanResult.language}</Typography>
+                </Paper>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2">Files Scanned</Typography>
+                  <Typography>{repoScanResult.files_scanned}/{repoScanResult.files_count}</Typography>
+                </Paper>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2">Findings</Typography>
+                  <Typography>{repoScanResult.total_findings}</Typography>
+                </Paper>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2">Scan Time</Typography>
+                  <Typography>{repoScanResult.scan_time_ms.toFixed(0)} ms</Typography>
+                </Paper>
+              </Box>
+
+              <Box display="flex" gap={2} flexWrap="wrap" sx={{ mb: 3 }}>
+                {Object.entries(repoScanResult.findings_by_severity).map(([severity, count]) => (
+                  <Paper key={severity} sx={{ p: 2, minWidth: 120, textAlign: 'center' }}>
+                    <Typography variant="h5" fontWeight={600}>{count}</Typography>
+                    <Typography variant="caption" sx={{ textTransform: 'capitalize' }}>{severity}</Typography>
+                  </Paper>
+                ))}
+              </Box>
+
+              {repoScanResult.sensitive_files.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Sensitive files detected</Typography>
+                  <Box display="flex" gap={1} flexWrap="wrap">
+                    {repoScanResult.sensitive_files.map((file) => (
+                      <Chip key={file} label={file} size="small" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              <Divider sx={{ mb: 2 }} />
+
+              {repoScanResult.findings_by_file.length > 0 ? (
+                repoScanResult.findings_by_file.map((fileResult, index) => (
+                  <Box key={index} sx={{ mb: 3 }}>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>{fileResult.path}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      {fileResult.findings_count} findings in {fileResult.language}
+                    </Typography>
+                    {fileResult.findings.map((finding) => (
+                      <Paper key={finding.id} sx={{ p: 2, mb: 1, borderRadius: 1, bgcolor: 'grey.50' }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>{finding.title}</Typography>
+                        <Box display="flex" gap={1} flexWrap="wrap">
+                          <Chip label={`Severity: ${finding.severity}`} size="small" />
+                          <Chip label={`Category: ${finding.category}`} size="small" />
+                          {finding.line_number && <Chip label={`Line ${finding.line_number}`} size="small" />}
+                          {finding.source && (
+                            <Chip
+                              label={finding.source === 'ml' ? 'ML detected' : finding.source === 'pattern' ? 'Rule-based' : finding.source}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                      </Paper>
+                    ))}
+                  </Box>
+                ))
+              ) : (
+                <Alert severity="success">No code-level findings were found in this repository scan.</Alert>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </TabPanel>
 
       {/* Error Display */}
@@ -347,7 +600,62 @@ export default function ScanPage() {
                   <Chip label={`Line ${finding.line_number}`} size="small" variant="outlined" />
                   <Chip label={finding.cwe_id || 'N/A'} size="small" variant="outlined" />
                   <Chip label={finding.category} size="small" variant="outlined" />
+                  {typeof finding.confidence === 'number' && (
+                    <Chip label={`${Math.round(finding.confidence * 100)}% confidence`} size="small" variant="outlined" />
+                  )}
+                  {finding.source && (
+                    <Chip
+                      label={finding.source === 'ml' ? 'ML detected' : finding.source === 'pattern' ? 'Rule-based' : finding.source}
+                      size="small"
+                      variant="outlined"
+                      color={finding.source === 'ml' ? 'primary' : 'default'}
+                    />
+                  )}
                 </Box>
+
+                {finding.remediation && (
+                  <Paper sx={{ p: 2, mt: 2, bgcolor: '#f0fdf4', border: '1px solid', borderColor: 'success.light' }}>
+                    <Typography variant="subtitle2" color="success.dark" gutterBottom>
+                      Recommended Remediation
+                    </Typography>
+                    <Typography component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                      {finding.remediation}
+                    </Typography>
+                  </Paper>
+                )}
+
+                {getSuggestion(finding.id) && (
+                  <Paper sx={{ p: 2, mt: 2, bgcolor: '#eff6ff', border: '1px solid', borderColor: 'primary.light' }}>
+                    <Typography variant="subtitle2" color="primary.dark" gutterBottom>
+                      Fix Suggestion: {getSuggestion(finding.id)?.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      {getSuggestion(finding.id)?.explanation}
+                    </Typography>
+                    <Typography component="pre" sx={{ m: 0, p: 1.5, borderRadius: 1, bgcolor: 'grey.900', color: 'grey.200', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem', overflow: 'auto' }}>
+                      {getSuggestion(finding.id)?.fixed_code}
+                    </Typography>
+                  </Paper>
+                )}
+
+                {getGeneratedTest(finding.id) && (
+                  <Paper sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Generated Security Test: {getGeneratedTest(finding.id)?.name}
+                    </Typography>
+                    <Typography component="pre" sx={{ m: 0, p: 1.5, borderRadius: 1, bgcolor: 'grey.900', color: 'grey.200', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem', overflow: 'auto', maxHeight: 260 }}>
+                      {getGeneratedTest(finding.id)?.test_code}
+                    </Typography>
+                  </Paper>
+                )}
+
+                {finding.references && finding.references.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      References: {finding.references.join(', ')}
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             ))}
 

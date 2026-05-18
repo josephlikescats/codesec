@@ -24,6 +24,9 @@ from src.models.vulnerability_detector import (
 )
 from src.models.test_generator import SecurityTestGenerator, GeneratedTest
 from src.models.remediation_suggester import RemediationSuggester, RemediationSuggestion
+from src.models.secret_detector import SecretDetector
+from src.models.dependency_checker import DependencyChecker
+from src.integrations.github_repo_scanner import GitHubRepositoryScanner
 
 load_dotenv()
 
@@ -38,6 +41,9 @@ logger = logging.getLogger(__name__)
 detector = VulnerabilityDetector()
 test_generator = SecurityTestGenerator()
 remediation_suggester = RemediationSuggester()
+secret_detector = SecretDetector()
+dependency_checker = DependencyChecker()
+repo_scanner = GitHubRepositoryScanner()
 
 
 @asynccontextmanager
@@ -100,6 +106,18 @@ class ApplyFixRequest(BaseModel):
     fix_id: str = Field(..., description="Suggested fix ID to apply")
 
 
+class GitHubScanRequest(BaseModel):
+    """Request model for GitHub repository scanning."""
+    owner: str = Field(..., description="GitHub repository owner")
+    repo: str = Field(..., description="GitHub repository name")
+
+
+class RepositoryAnalysisRequest(BaseModel):
+    """Request model for repository analysis."""
+    repo_url: str = Field(..., description="Repository URL")
+    branch: str = Field(default="main", description="Branch to scan")
+
+
 # ================== Response Models ==================
 
 class ScanResponse(BaseModel):
@@ -123,6 +141,35 @@ class RemediationResponse(BaseModel):
     """Response model for remediation suggestions."""
     suggestions: list[dict]
     count: int
+
+
+class RepositoryInfoResponse(BaseModel):
+    """Response model for repository information."""
+    owner: str
+    repo: str
+    url: str
+    language: str
+    files_count: int
+    total_lines: int
+    languages: dict
+    sensitive_files: list[str]
+
+
+class GitHubScanResponse(BaseModel):
+    """Response model for GitHub repository scan."""
+    owner: str
+    repo: str
+    url: str
+    language: str
+    files_count: int
+    total_lines: int
+    files_scanned: int
+    total_findings: int
+    scan_time_ms: float
+    languages: dict
+    sensitive_files: list[str]
+    findings_by_severity: dict
+    findings_by_file: list[dict]
 
 
 class HealthResponse(BaseModel):
@@ -188,7 +235,8 @@ async def scan_code(
                 "cwe_id": f.cwe_id,
                 "confidence": f.confidence,
                 "remediation": f.remediation,
-                "references": f.references
+                "references": f.references,
+                "source": getattr(f, "source", "pattern")
             }
             for f in findings
         ]
@@ -240,8 +288,14 @@ async def batch_scan(request: BatchScanRequest):
                         "category": f.category.value,
                         "severity": f.severity.value,
                         "title": f.title,
+                        "description": f.description,
+                        "code_snippet": f.code_snippet,
                         "line_number": f.line_number,
-                        "cwe_id": f.cwe_id
+                        "cwe_id": f.cwe_id,
+                        "confidence": f.confidence,
+                        "remediation": f.remediation,
+                        "references": f.references,
+                        "source": getattr(f, "source", "pattern")
                     }
                     for f in findings
                 ],
@@ -452,7 +506,10 @@ async def scan_file(
                     "code_snippet": f.code_snippet,
                     "line_number": f.line_number,
                     "cwe_id": f.cwe_id,
-                    "confidence": f.confidence
+                    "confidence": f.confidence,
+                    "remediation": f.remediation,
+                    "references": f.references,
+                    "source": getattr(f, "source", "pattern")
                 }
                 for f in findings
             ],
@@ -524,11 +581,14 @@ async def scan_project(
                     "code_snippet": f.code_snippet,
                     "line_number": f.line_number,
                     "cwe_id": f.cwe_id,
-                    "confidence": f.confidence
+                    "confidence": f.confidence,
+                    "remediation": f.remediation,
+                    "references": f.references,
+                    "source": getattr(f, "source", "pattern")
                 }
                 for f in findings
             ]
-            
+
             results.append({
                 "file_name": file.filename,
                 "language": file_lang,
@@ -568,6 +628,225 @@ async def scan_project(
         "by_severity": severity_counts,
         "results": results
     }
+
+
+# ================== GitHub Repository Scanning Endpoints ==================
+
+@app.post("/api/v1/scan/github", tags=["GitHub"], response_model=GitHubScanResponse)
+async def scan_github_repository(request: GitHubScanRequest):
+    """Scan a GitHub repository for vulnerabilities.
+    
+    Clones the repository, analyzes all code files, and returns vulnerability report.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        logger.info(f"Starting GitHub repository scan: {request.owner}/{request.repo}")
+        
+        # Get repository info and files
+        repo_data = await repo_scanner.scan_repository(request.owner, request.repo)
+        
+        if "error" in repo_data:
+            raise HTTPException(status_code=400, detail=repo_data["error"])
+        
+        files_to_scan = repo_data.get("files", [])
+        files_scanned = 0
+        total_findings = 0
+        findings_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        findings_by_file = []
+        
+        # Scan each file
+        for file_info in files_to_scan:
+            try:
+                # Detect vulnerabilities
+                findings = await detector.detect(
+                    code=file_info["content"],
+                    language=file_info["language"],
+                    file_path=file_info["path"]
+                )
+                
+                # Check for secrets
+                secret_findings = await secret_detector.detect_secrets(
+                    file_info["content"],
+                    file_info["path"]
+                )
+                
+                # Convert to dict format with full metadata
+                all_findings = [
+                    {
+                        "id": f.id,
+                        "category": f.category.value,
+                        "severity": f.severity.value,
+                        "title": f.title,
+                        "description": f.description,
+                        "code_snippet": f.code_snippet,
+                        "line_number": f.line_number,
+                        "cwe_id": f.cwe_id,
+                        "confidence": f.confidence,
+                        "remediation": f.remediation,
+                        "references": f.references,
+                        "source": getattr(f, "source", "pattern")
+                    }
+                    for f in findings
+                ]
+                
+                # Add secret findings
+                all_findings.extend([
+                    {
+                        "id": f"secret_{i}",
+                        "category": "sensitive_data",
+                        "severity": s.severity,
+                        "title": s.message,
+                        "description": s.message,
+                        "code_snippet": None,
+                        "line_number": s.line_number,
+                        "cwe_id": None,
+                        "confidence": 1.0,
+                        "remediation": None,
+                        "references": [],
+                        "source": "secret"
+                    }
+                    for i, s in enumerate(secret_findings)
+                ])
+
+                if all_findings:
+                    files_scanned += 1
+                    total_findings += len(all_findings)
+                    
+                    # Count by severity
+                    for f in all_findings:
+                        sev = f.get("severity", "low")
+                        if sev in findings_by_severity:
+                            findings_by_severity[sev] += 1
+                    
+                    findings_by_file.append({
+                        "path": file_info["path"],
+                        "language": file_info["language"],
+                        "findings_count": len(all_findings),
+                        "findings": all_findings
+                    })
+                
+            except Exception as e:
+                logger.warning(f"Failed to scan {file_info['path']}: {e}")
+                continue
+        
+        # Check for dependency vulnerabilities
+        for file_info in files_to_scan:
+            if file_info["path"] == "requirements.txt":
+                dep_vulns = await dependency_checker.check_requirements(file_info["content"])
+                for vuln in dep_vulns:
+                    total_findings += 1
+                    findings_by_severity[vuln.severity] += 1
+                    findings_by_file.append({
+                        "path": "requirements.txt",
+                        "language": "python",
+                        "findings_count": 1,
+                        "findings": [{
+                            "id": vuln.vulnerability_id,
+                            "category": "dependency",
+                            "severity": vuln.severity,
+                            "title": f"{vuln.package} has vulnerability {vuln.vulnerability_id}",
+                            "description": getattr(vuln, 'description', 'Dependency vulnerability detected'),
+                            "code_snippet": None,
+                            "line_number": None,
+                            "cwe_id": None,
+                            "confidence": 1.0,
+                            "remediation": None,
+                            "references": [],
+                            "source": "dependency"
+                        }]
+                    })
+            elif file_info["path"] == "package.json":
+                dep_vulns = await dependency_checker.check_package_json(file_info["content"])
+                for vuln in dep_vulns:
+                    total_findings += 1
+                    findings_by_severity[vuln.severity] += 1
+                    findings_by_file.append({
+                        "path": "package.json",
+                        "language": "javascript",
+                        "findings_count": 1,
+                        "findings": [{
+                            "id": vuln.vulnerability_id,
+                            "category": "dependency",
+                            "severity": vuln.severity,
+                            "title": f"{vuln.package} has vulnerability {vuln.vulnerability_id}",
+                            "description": getattr(vuln, 'description', 'Dependency vulnerability detected'),
+                            "code_snippet": None,
+                            "line_number": None,
+                            "cwe_id": None,
+                            "confidence": 1.0,
+                            "remediation": None,
+                            "references": [],
+                            "source": "dependency"
+                        }]
+                    })
+        
+        scan_time_ms = (time.time() - start_time) * 1000
+        
+        # Clean up repository
+        if "repo_path" in repo_data:
+            await repo_scanner.cleanup_repository(repo_data["repo_path"])
+        
+        logger.info(f"Completed GitHub scan: {request.owner}/{request.repo} - Found {total_findings} issues")
+        
+        return GitHubScanResponse(
+            owner=request.owner,
+            repo=request.repo,
+            url=repo_data.get("url", f"https://github.com/{request.owner}/{request.repo}"),
+            language=repo_data.get("language", "Unknown"),
+            files_count=repo_data.get("files_count", 0),
+            total_lines=repo_data.get("total_lines", 0),
+            files_scanned=len(files_to_scan),
+            total_findings=total_findings,
+            scan_time_ms=scan_time_ms,
+            languages=repo_data.get("languages", {}),
+            sensitive_files=repo_data.get("sensitive_files", []),
+            findings_by_severity=findings_by_severity,
+            findings_by_file=findings_by_file
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error scanning GitHub repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/scan/github/info", tags=["GitHub"])
+async def analyze_github_repository(request: GitHubScanRequest):
+    """Get information about a GitHub repository without scanning.
+    
+    Returns repository metadata and structure information.
+    """
+    try:
+        logger.info(f"Analyzing GitHub repository: {request.owner}/{request.repo}")
+        
+        repo_data = await repo_scanner.scan_repository(request.owner, request.repo)
+        
+        if "error" in repo_data:
+            raise HTTPException(status_code=400, detail=repo_data["error"])
+        
+        # Clean up repository
+        if "repo_path" in repo_data:
+            await repo_scanner.cleanup_repository(repo_data["repo_path"])
+        
+        return RepositoryInfoResponse(
+            owner=request.owner,
+            repo=request.repo,
+            url=repo_data.get("url", ""),
+            language=repo_data.get("language", "Unknown"),
+            files_count=repo_data.get("files_count", 0),
+            total_lines=repo_data.get("total_lines", 0),
+            languages=repo_data.get("languages", {}),
+            sensitive_files=repo_data.get("sensitive_files", [])
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing GitHub repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ================== Statistics Endpoints ==================

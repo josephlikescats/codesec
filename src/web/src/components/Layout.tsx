@@ -8,8 +8,7 @@ import {
   List,
   ListItem,
   ListItemButton,
-  ListItemText,
-  useTheme
+  ListItemText
 } from '@mui/material'
 
 const drawerWidth = 240
@@ -22,7 +21,6 @@ const menuItems = [
 ]
 
 export default function Layout() {
-  const theme = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
 

@@ -162,8 +162,7 @@ export default function FileUpload({ onScanComplete }: FileUploadProps) {
           type="file"
           id="file-input"
           multiple
-          directory=""
-          webkitdirectory=""
+          {...({ directory: '', webkitdirectory: '' } as any)}
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
@@ -215,7 +214,12 @@ export default function FileUpload({ onScanComplete }: FileUploadProps) {
                     <FileIcon fontSize="small" color="action" />
                     <Typography variant="body2">{file.name}</Typography>
                   </Box>
-                  <Chip label={formatFileSize(file.size)} size="small" variant="outlined" />
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Chip label={formatFileSize(file.size)} size="small" variant="outlined" />
+                    <IconButton size="small" onClick={() => removeFile(index)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
                 </Box>
               ))}
             </Box>
@@ -327,6 +331,75 @@ export default function FileUpload({ onScanComplete }: FileUploadProps) {
                   />
                 </Box>
               </Box>
+
+              {fileResult.findings?.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {fileResult.findings.map((finding: any, findingIndex: number) => (
+                    <Paper key={finding.id || findingIndex} variant="outlined" sx={{ p: 2, mb: 1 }}>
+                      <Box display="flex" justifyContent="space-between" gap={2} flexWrap="wrap" sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2">{finding.title}</Typography>
+                        <Chip
+                          label={finding.severity}
+                          size="small"
+                          color={getSeverityColor(finding.severity) as any}
+                        />
+                      </Box>
+
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        {finding.description}
+                      </Typography>
+
+                      <Box display="flex" gap={1} flexWrap="wrap" sx={{ mb: finding.remediation ? 1 : 0 }}>
+                        <Chip label={`Line ${finding.line_number}`} size="small" variant="outlined" />
+                        <Chip label={finding.cwe_id || 'N/A'} size="small" variant="outlined" />
+                        {typeof finding.confidence === 'number' && (
+                          <Chip label={`${Math.round(finding.confidence * 100)}% confidence`} size="small" variant="outlined" />
+                        )}
+                      </Box>
+
+                      {finding.code_snippet && (
+                        <Typography
+                          component="pre"
+                          sx={{
+                            m: 0,
+                            mb: 1,
+                            p: 1.5,
+                            borderRadius: 1,
+                            bgcolor: 'grey.900',
+                            color: 'grey.200',
+                            whiteSpace: 'pre-wrap',
+                            fontFamily: 'monospace',
+                            fontSize: '0.75rem',
+                            overflow: 'auto'
+                          }}
+                        >
+                          {finding.code_snippet}
+                        </Typography>
+                      )}
+
+                      {finding.remediation && (
+                        <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: 'success.light' }}>
+                          <Typography variant="subtitle2" color="success.contrastText" gutterBottom>
+                            Recommended Remediation
+                          </Typography>
+                          <Typography
+                            component="pre"
+                            sx={{
+                              m: 0,
+                              whiteSpace: 'pre-wrap',
+                              fontFamily: 'monospace',
+                              fontSize: '0.75rem',
+                              color: 'success.contrastText'
+                            }}
+                          >
+                            {finding.remediation}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Paper>
+                  ))}
+                </Box>
+              )}
             </Paper>
           ))}
         </Box>

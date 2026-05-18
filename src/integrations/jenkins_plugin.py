@@ -4,9 +4,8 @@ Provides integration with Jenkins for automated security scanning.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 from dataclasses import dataclass, field
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class JenkinsScanResult:
 class JenkinsIntegration:
     """Jenkins pipeline integration for security scanning."""
     
-    JENKINSFILE_TEMPLATE = '''pipeline {
+    JENKINSFILE_TEMPLATE = """pipeline {
     agent any
     
     environment {
@@ -113,7 +112,7 @@ class JenkinsIntegration:
         }
     }
 }
-'''
+"""
     
     def __init__(self, config: Optional[JenkinsConfig] = None):
         self.config = config or JenkinsConfig()
