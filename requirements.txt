@@ -1,0 +1,15 @@
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+python-multipart>=0.0.6
+transformers>=4.36.0
+httpx>=0.24.0
+# torch is optional; install appropriate wheel for your platform
+# e.g., pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+pytest>=7.0.0
+# ruff is recommended for linting in CI; install separately if desired
+black>=24.0.0
+
+# dev extras
+python-dotenv>=1.0.0
+

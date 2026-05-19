@@ -18,12 +18,11 @@ from dotenv import load_dotenv
 from src.models.vulnerability_detector import (
     VulnerabilityDetector, 
     VulnerabilityFinding,
-    ScanResult,
     VulnerabilityCategory,
     VulnerabilitySeverity
 )
-from src.models.test_generator import SecurityTestGenerator, GeneratedTest
-from src.models.remediation_suggester import RemediationSuggester, RemediationSuggestion
+from src.models.test_generator import SecurityTestGenerator
+from src.models.remediation_suggester import RemediationSuggester
 from src.models.secret_detector import SecretDetector
 from src.models.dependency_checker import DependencyChecker
 from src.integrations.github_repo_scanner import GitHubRepositoryScanner
@@ -177,6 +176,10 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: datetime
+    ml_available: bool = False
+    transformers_installed: bool = False
+    httpx_installed: bool = False
+    detector_loaded: bool = False
 
 
 # ================== API Endpoints ==================
@@ -194,10 +197,42 @@ async def root():
 @app.get("/health", tags=["Health"], response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
+    # Probe optional ML and network dependencies without failing
+    ml_available = False
+    transformers_installed = False
+    httpx_installed = False
+    detector_loaded = getattr(detector, "_is_loaded", False)
+
+    try:
+        import importlib
+
+        t = importlib.import_module("transformers")
+        transformers_installed = True
+    except Exception:
+        transformers_installed = False
+
+    try:
+        import importlib
+        torch_mod = importlib.import_module("torch")
+        ml_available = True
+    except Exception:
+        ml_available = False
+
+    try:
+        import importlib
+        importlib.import_module("httpx")
+        httpx_installed = True
+    except Exception:
+        httpx_installed = False
+
     return HealthResponse(
         status="healthy",
         version="0.1.0",
-        timestamp=datetime.now()
+        timestamp=datetime.now(),
+        ml_available=ml_available,
+        transformers_installed=transformers_installed,
+        httpx_installed=httpx_installed,
+        detector_loaded=detector_loaded
     )
 
 
