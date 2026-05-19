@@ -26,7 +26,7 @@ import {
   Security as SecurityIcon,
   GitHub as GitHubIcon
 } from '@mui/icons-material'
-import axios from 'axios'
+import axios from '../api/client'
 import FileUpload from '../components/FileUpload'
 
 interface Finding {
@@ -396,43 +396,43 @@ export default function ScanPage() {
         )}
 
         {repoScanResult && (
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>
+          <Card sx={{ bgcolor: '#0e1727', color: '#fff' }}>
+            <CardContent sx={{ color: '#fff' }}>
+              <Typography variant="h6" sx={{ mb: 2, color: '#fff' }}>
                 Repository Scan Result
               </Typography>
 
               <Box display="grid" gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))" gap={2} sx={{ mb: 3 }}>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle2">Repository</Typography>
-                  <Typography>{repoScanResult.owner}/{repoScanResult.repo}</Typography>
-                  <Typography variant="caption" component="a" href={repoScanResult.url} target="_blank" rel="noopener noreferrer" sx={{ display: 'block', mt: 1 }}>
+                <Paper sx={{ p: 2, bgcolor: '#13233d', color: '#fff' }}>
+                  <Typography variant="subtitle2" color="#fff">Repository</Typography>
+                  <Typography color="#fff">{repoScanResult.owner}/{repoScanResult.repo}</Typography>
+                  <Typography variant="caption" component="a" href={repoScanResult.url} target="_blank" rel="noopener noreferrer" sx={{ display: 'block', mt: 1 }} color="#93c5fd">
                     View on GitHub
                   </Typography>
                 </Paper>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle2">Primary Language</Typography>
-                  <Typography>{repoScanResult.language}</Typography>
+                <Paper sx={{ p: 2, bgcolor: '#13233d', color: '#fff' }}>
+                  <Typography variant="subtitle2" color="#fff">Primary Language</Typography>
+                  <Typography color="#fff">{repoScanResult.language}</Typography>
                 </Paper>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle2">Files Scanned</Typography>
-                  <Typography>{repoScanResult.files_scanned}/{repoScanResult.files_count}</Typography>
+                <Paper sx={{ p: 2, bgcolor: '#13233d', color: '#fff' }}>
+                  <Typography variant="subtitle2" color="#fff">Files Scanned</Typography>
+                  <Typography color="#fff">{repoScanResult.files_scanned}/{repoScanResult.files_count}</Typography>
                 </Paper>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle2">Findings</Typography>
-                  <Typography>{repoScanResult.total_findings}</Typography>
+                <Paper sx={{ p: 2, bgcolor: '#13233d', color: '#fff' }}>
+                  <Typography variant="subtitle2" color="#fff">Findings</Typography>
+                  <Typography color="#fff">{repoScanResult.total_findings}</Typography>
                 </Paper>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle2">Scan Time</Typography>
-                  <Typography>{repoScanResult.scan_time_ms.toFixed(0)} ms</Typography>
+                <Paper sx={{ p: 2, bgcolor: '#13233d', color: '#fff' }}>
+                  <Typography variant="subtitle2" color="#fff">Scan Time</Typography>
+                  <Typography color="#fff">{repoScanResult.scan_time_ms.toFixed(0)} ms</Typography>
                 </Paper>
               </Box>
 
               <Box display="flex" gap={2} flexWrap="wrap" sx={{ mb: 3 }}>
                 {Object.entries(repoScanResult.findings_by_severity).map(([severity, count]) => (
-                  <Paper key={severity} sx={{ p: 2, minWidth: 120, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={600}>{count}</Typography>
-                    <Typography variant="caption" sx={{ textTransform: 'capitalize' }}>{severity}</Typography>
+                  <Paper key={severity} sx={{ p: 2, minWidth: 120, textAlign: 'center', bgcolor: '#13233d', color: '#fff' }}>
+                    <Typography variant="h5" fontWeight={600} color="#fff">{count}</Typography>
+                    <Typography variant="caption" color="#fff" sx={{ textTransform: 'capitalize' }}>{severity}</Typography>
                   </Paper>
                 ))}
               </Box>
@@ -452,16 +452,16 @@ export default function ScanPage() {
 
               {repoScanResult.findings_by_file.length > 0 ? (
                 repoScanResult.findings_by_file.map((fileResult, index) => (
-                  <Box key={index} sx={{ mb: 3 }}>
-                    <Typography variant="subtitle1" sx={{ mb: 1 }}>{fileResult.path}</Typography>
+                  <Box key={index} sx={{ mb: 3, color: 'text.primary' }}>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }} color="text.primary">{fileResult.path}</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                       {fileResult.findings_count} findings in {fileResult.language}
                     </Typography>
                     {fileResult.findings.map((finding) => (
-                      <Paper key={finding.id} sx={{ p: 2, mb: 1, borderRadius: 1, bgcolor: 'grey.50' }}>
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>{finding.title}</Typography>
+                      <Paper key={finding.id} sx={{ p: 2, mb: 1, borderRadius: 1, bgcolor: '#13233d', color: '#fff' }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }} color="#fff">{finding.title}</Typography>
                         <Box display="flex" gap={1} flexWrap="wrap">
-                          <Chip label={`Severity: ${finding.severity}`} size="small" />
+                          <Chip label={`Severity: ${finding.severity}`} size="small" color="primary" />
                           <Chip label={`Category: ${finding.category}`} size="small" />
                           {finding.line_number && <Chip label={`Line ${finding.line_number}`} size="small" />}
                           {finding.source && (
@@ -493,11 +493,11 @@ export default function ScanPage() {
 
       {/* Results Display */}
       {results.length > 0 && (
-        <Card>
-          <CardContent>
+        <Card sx={{ bgcolor: '#0e1727', color: '#fff' }}>
+          <CardContent sx={{ color: '#fff' }}>
             {/* Summary Cards */}
             <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography variant="h6">
+              <Typography variant="h6" sx={{ color: 'text.primary' }}>
                 Scan Results ({results.length} findings)
               </Typography>
               <Box display="flex" gap={1}>
@@ -511,29 +511,29 @@ export default function ScanPage() {
 
             {/* Severity Summary */}
             <Box display="flex" gap={2} flexWrap="wrap" sx={{ mb: 3 }}>
-              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: 'error.light' }}>
-                <Typography variant="h4" color="error.contrastText">
+              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: '#13233d', color: '#fff' }}>
+                <Typography variant="h4" color="#fca5a5">
                   {getSeverityCount('critical')}
                 </Typography>
-                <Typography variant="caption" color="error.contrastText">Critical</Typography>
+                <Typography variant="caption" color="text.primary">Critical</Typography>
               </Paper>
-              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: 'warning.light' }}>
-                <Typography variant="h4" color="warning.contrastText">
+              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: '#13233d', color: '#fff' }}>
+                <Typography variant="h4" color="#fcd34d">
                   {getSeverityCount('high')}
                 </Typography>
-                <Typography variant="caption" color="warning.contrastText">High</Typography>
+                <Typography variant="caption" color="text.primary">High</Typography>
               </Paper>
-              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: 'info.light' }}>
-                <Typography variant="h4" color="info.contrastText">
+              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: '#13233d', color: '#fff' }}>
+                <Typography variant="h4" color="#93c5fd">
                   {getSeverityCount('medium')}
                 </Typography>
-                <Typography variant="caption" color="info.contrastText">Medium</Typography>
+                <Typography variant="caption" color="text.primary">Medium</Typography>
               </Paper>
-              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: 'success.light' }}>
-                <Typography variant="h4" color="success.contrastText">
+              <Paper sx={{ p: 2, minWidth: 80, textAlign: 'center', bgcolor: '#13233d', color: '#fff' }}>
+                <Typography variant="h4" color="#86efac">
                   {getSeverityCount('low')}
                 </Typography>
-                <Typography variant="caption" color="success.contrastText">Low</Typography>
+                <Typography variant="caption" color="text.primary">Low</Typography>
               </Paper>
             </Box>
 
@@ -549,11 +549,12 @@ export default function ScanPage() {
                   borderRadius: 2,
                   border: '1px solid',
                   borderColor: 'divider',
-                  backgroundColor: 'background.paper'
+                  backgroundColor: '#13233d',
+                  color: '#fff'
                 }}
               >
                 <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
+                  <Typography variant="subtitle1" fontWeight={600} color="text.primary">
                     {finding.title}
                   </Typography>
                   <Chip 
@@ -563,7 +564,7 @@ export default function ScanPage() {
                   />
                 </Box>
                 
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.primary" sx={{ mb: 1 }}>
                   {finding.description}
                 </Typography>
 
@@ -618,7 +619,7 @@ export default function ScanPage() {
                     <Typography variant="subtitle2" color="success.dark" gutterBottom>
                       Recommended Remediation
                     </Typography>
-                    <Typography component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                    <Typography component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.8rem', color: 'text.primary' }}>
                       {finding.remediation}
                     </Typography>
                   </Paper>
@@ -629,7 +630,7 @@ export default function ScanPage() {
                     <Typography variant="subtitle2" color="primary.dark" gutterBottom>
                       Fix Suggestion: {getSuggestion(finding.id)?.title}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    <Typography variant="body2" color="text.primary" sx={{ mb: 1 }}>
                       {getSuggestion(finding.id)?.explanation}
                     </Typography>
                     <Typography component="pre" sx={{ m: 0, p: 1.5, borderRadius: 1, bgcolor: 'grey.900', color: 'grey.200', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem', overflow: 'auto' }}>

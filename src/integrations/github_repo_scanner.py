@@ -3,15 +3,13 @@
 Handles cloning, analyzing, and scanning GitHub repositories.
 """
 
-import asyncio
 import logging
-import os
 import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from subprocess import run, PIPE
+from subprocess import run
 
 try:
     import httpx
@@ -74,6 +72,48 @@ class GitHubRepositoryScanner:
         else:
             self.client = None
         self.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _rmtree_force(path: Path) -> None:
+        """Remove a directory tree, trying to fix permission errors on Windows."""
+        import os
+        import stat
+
+        def _chmod_writeable(target: str) -> None:
+            try:
+                os.chmod(target, stat.S_IWRITE)
+            except Exception:
+                pass
+
+        if not path.exists():
+            return
+
+        try:
+            for root, dirs, files in os.walk(path, topdown=False):
+                for name in files:
+                    file_path = os.path.join(root, name)
+                    try:
+                        _chmod_writeable(file_path)
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+                for name in dirs:
+                    dir_path = os.path.join(root, name)
+                    try:
+                        _chmod_writeable(dir_path)
+                        os.rmdir(dir_path)
+                    except Exception:
+                        pass
+            try:
+                _chmod_writeable(str(path))
+                os.rmdir(path)
+            except Exception:
+                pass
+        except Exception:
+            try:
+                shutil.rmtree(path, onerror=lambda func, p, exc_info: _chmod_writeable(p) or func(p))
+            except Exception:
+                pass
     
     async def clone_repository(self, owner: str, repo: str) -> Optional[Path]:
         """Clone a GitHub repository.
@@ -90,7 +130,10 @@ class GitHubRepositoryScanner:
         
         # Remove existing directory
         if repo_path.exists():
-            shutil.rmtree(repo_path)
+            try:
+                self._rmtree_force(repo_path)
+            except Exception as e:
+                logger.warning(f"Could not remove existing repo dir {repo_path}: {e}")
         
         try:
             logger.info(f"Cloning {clone_url}")
@@ -106,6 +149,14 @@ class GitHubRepositoryScanner:
                 return None
             
             logger.info(f"Successfully cloned {clone_url}")
+            # Remove the .git metadata to avoid permission/lock issues on Windows
+            git_dir = repo_path / '.git'
+            if git_dir.exists():
+                try:
+                    self._rmtree_force(git_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to remove .git directory: {e}")
+
             return repo_path
             
         except Exception as e:
@@ -306,12 +357,15 @@ class GitHubRepositoryScanner:
         try:
             path = Path(repo_path)
             if path.exists():
-                shutil.rmtree(path)
-                logger.info(f"Cleaned up {repo_path}")
-                return True
+                try:
+                    self._rmtree_force(path)
+                    logger.info(f"Cleaned up {repo_path}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error cleaning up {repo_path}: {e}")
         except Exception as e:
             logger.error(f"Error cleaning up {repo_path}: {e}")
-        
+
         return False
     
     async def cleanup_all(self) -> None:
